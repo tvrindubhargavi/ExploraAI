@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User Rules
+    function isValidUser(data) {
+      return data.uid == request.auth.uid 
+        && data.email is string 
+        && (data.displayName == null || data.displayName is string)
+        && (data.photoURL == null || data.photoURL is string);
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming());
+    }
+
+    // Friend Request Rules
+    match /friendRequests/{requestId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.fromId || request.auth.uid == resource.data.toId);
+      allow create: if isSignedIn() && incoming().fromId == request.auth.uid;
+      allow update: if isSignedIn() && request.auth.uid == resource.data.toId && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if isSignedIn() && (request.auth.uid == resource.data.fromId || request.auth.uid == resource.data.toId);
+    }
+
+    // Trip Rules
+    function isValidTrip(data) {
+      return data.ownerId == request.auth.uid 
+        && data.title is string && data.title.size() <= 100
+        && data.destination is string;
+    }
+
+    match /trips/{tripId} {
+      allow read: if isSignedIn() && (request.auth.uid == existing().ownerId || request.auth.uid in existing().members);
+      allow create: if isSignedIn() && isValidTrip(incoming()) && incoming().ownerId == request.auth.uid;
+      allow update: if isSignedIn() && (request.auth.uid == existing().ownerId || request.auth.uid in existing().members)
+                    && (incoming().diff(existing()).affectedKeys().hasOnly(['itinerary', 'updatedAt', 'members', 'title', 'destination', 'budget']));
+      allow delete: if isSignedIn() && request.auth.uid == existing().ownerId;
+    }
+
+    // Post Rules
+    function isValidPost(data) {
+      return data.userId == request.auth.uid
+        && data.content is string && data.content.size() <= 1000
+        && (data.imageUrl == null || data.imageUrl is string);
+    }
+
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidPost(incoming());
+      allow update: if isSignedIn() && (
+        (request.auth.uid == existing().userId && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'imageUrl', 'locationName']))
+        || (incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'likedBy']))
+      );
+      allow delete: if isSignedIn() && request.auth.uid == existing().userId;
+    }
+
+    // Chat Rules
+    match /chats/{chatId} {
+      allow read, write: if isSignedIn() && request.auth.uid in resource.data.members;
+      
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members;
+        allow create: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.members
+                      && incoming().senderId == request.auth.uid;
+      }
+    }
+  }
+}

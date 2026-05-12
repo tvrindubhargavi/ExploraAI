@@ -1,0 +1,15 @@
+{
+  "name": "ExploraAI",
+  "description": "Smart AI-powered travel companion for personalized exploration, trip planning, and social sharing.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "AI-powered itinerary generation",
+    "Real-time landmark recognition",
+    "Multilingual voice translation",
+    "Collaborative trip planning"
+  ]
+}
